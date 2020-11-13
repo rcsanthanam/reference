@@ -84,6 +84,41 @@ public class CommonComparator<T> implements Comparator<T> {
 			return -1;
 
 	}
+	
+		/**
+	 * Get actual value for the field
+	 * */
+	private Object invokeGetterValue(String fieldName,T t) {
+		Object value = null;
+		try {
+			PropertyDescriptor pd = new PropertyDescriptor(fieldName, t.getClass());
+			Method getter = pd.getReadMethod();
+			value = getter.invoke(t);
+		} catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException
+				| IntrospectionException e) {
+			LOGGER.error(ExceptionUtils.getStackTrace(e));
+			throw new BadRequestException("Invalid sort column");
+		}
+		return value;
+	}
+
+	/**
+	 * Compare two actual values, according to different data types.
+	 * 
+	 * @param v1
+	 * @param v2
+	 * @return 1,-1, 0
+	 */
+	private int compareNull(final Object v1, final Object v2) {
+		int acutal = 0;
+		if (v1 == v2)
+			acutal = 0;
+		else if (v1 == null)
+			acutal = 1;
+		else
+			acutal = -1;
+		return acutal * determineDirect();
+	}
 
 	/**
 	 * Compare two actual values, according to different data types.
