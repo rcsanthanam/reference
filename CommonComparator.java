@@ -7,6 +7,7 @@ import java.lang.reflect.Method;
 import java.sql.Timestamp;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.Objects;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.slf4j.Logger;
@@ -21,7 +22,7 @@ import com.saviynt.pam.exception.BadRequestException;
  */
 public class CommonComparator<T> implements Comparator<T> {
 
-	private static final Logger LOGGER = LoggerFactory.getLogger(CommonComparator.class);
+	private static final Logger log = LoggerFactory.getLogger(CommonComparator.class);
 
 	private static final String DATATYPE_STRING = "java.lang.String";
 	private static final String DATATYPE_DATE = "java.util.Date";
@@ -31,17 +32,17 @@ public class CommonComparator<T> implements Comparator<T> {
 	private static final String DATATYPE_DOUBLE = "java.lang.Double";
 	private static final String DATATYPE_SQL_TIMESTAMP = "java.sql.Timestamp";
 	
-	private String sortFieldName;
-	private boolean isAscendingOrder;
+	private final String fieldName;
+	private final boolean isAscendingOrder;
 	private boolean isNullFirst;
 
-	public CommonComparator(final String sortFieldName,SortOrder sortOrder) {
-		this.sortFieldName = sortFieldName;
+	public CommonComparator(final String fieldName, SortOrder sortOrder) {
+		this.fieldName = fieldName;
 		this.isAscendingOrder = SortOrder.asc == sortOrder;
 	}
 
-	public CommonComparator(final String sortFieldName,SortOrder sortOrder,boolean isNullFirst) {
-        this(sortFieldName,sortOrder);
+	public CommonComparator(final String fieldName, SortOrder sortOrder, boolean isNullFirst) {
+        this(fieldName,sortOrder);
 		this.isNullFirst = isNullFirst;
 	}
 
@@ -56,45 +57,42 @@ public class CommonComparator<T> implements Comparator<T> {
 	 */
 	@Override
 	public int compare(final T t1, final T t2) {
-		int value = 1;
 		try {
-			Object fieldVal1 = invokeGetterValue(sortFieldName, t1);
-			Object fieldVal2 = invokeGetterValue(sortFieldName, t2);
+			int value;
+			Object fieldVal1 = invokeGetterValue(t1);
+			Object fieldVal2 = invokeGetterValue(t2);
 
 			if (fieldVal1 == null || fieldVal2 == null) {
 				value = compareNull(fieldVal1, fieldVal2);
 			} else {
 				value = compareValue(fieldVal1, fieldVal2);
 			}
-
+			return value * determineOrder();
 		} catch (SecurityException | IllegalArgumentException e) {
-			LOGGER.error(ExceptionUtils.getStackTrace(e));
+			log.error(ExceptionUtils.getStackTrace(e));
 			throw new BadRequestException("Invalid sort column");
 		}
-		return value * determineOrder();
 	}
 
 	/**
 	 * Get actual value for the field
-	 * 
-	 * @param fieldName
+	 *
 	 * @param t
 	 * @return value
 	 * 
 	 * @throws BadRequestException
 	 */
-	private Object invokeGetterValue(String fieldName,T t) {
-		Object value = null;
+	private Object invokeGetterValue(T t) {
+		Objects.requireNonNull(fieldName);
 		try {
 			PropertyDescriptor pd = new PropertyDescriptor(fieldName, t.getClass());
 			Method getter = pd.getReadMethod();
-			value = getter.invoke(t);
+			return getter.invoke(t);
 		} catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException
 				| IntrospectionException e) {
-			LOGGER.error(ExceptionUtils.getStackTrace(e));
-			throw new BadRequestException("Invalid sort column");
+			log.error(ExceptionUtils.getStackTrace(e));
+			throw new IllegalArgumentException("Invalid property");
 		}
-		return value;
 	}
 
 	/**
@@ -110,7 +108,7 @@ public class CommonComparator<T> implements Comparator<T> {
 			actual = 0;
 		else if(v1 == null)
 			actual = 1;
-		return actual * determineNullOrder() * determineOrder();
+		return actual * determineNullPos() * determineOrder();
 	}
 
 	/**
@@ -121,38 +119,33 @@ public class CommonComparator<T> implements Comparator<T> {
 	 * @return -1,0,1
 	 */
 	private int compareValue(final Object v1, final Object v2) {
-		int actual = -1;
-		if (v1.getClass() == v2.getClass()) {
-			String fieldType = v1.getClass().getName();
-			switch (fieldType) {
-				case DATATYPE_INTEGER:
-					actual = ((Integer) v1).compareTo((Integer) v2);
-					break;
-				case DATATYPE_LONG:
-					actual = ((Long) v1).compareTo((Long) v2);
-					break;
-				case DATATYPE_STRING:
-					actual = ((String) v1).compareTo((String) v2);
-					break;
-				case DATATYPE_DATE:
-					actual = ((Date) v1).compareTo((Date) v2);
-					break;
-				case DATATYPE_FLOAT:
-					actual = ((Float) v1).compareTo((Float) v2);
-					break;
-				case DATATYPE_DOUBLE:
-					actual = ((Double) v1).compareTo((Double) v2);
-					break;
-				case DATATYPE_SQL_TIMESTAMP:
-					actual = ((Timestamp) v1).compareTo((Timestamp) v2);
-					break;
-				default:
-					LOGGER.error("Data type object is different class t1: {} and t2: {}",v1.getClass(),v2.getClass());
-					throw new IllegalArgumentException("Data type object is different class");
+		int actual;
+		switch (v1.getClass().getName()) {
+			case DATATYPE_INTEGER:
+				actual = ((Integer) v1).compareTo((Integer) v2);
+				break;
+			case DATATYPE_LONG:
+				actual = ((Long) v1).compareTo((Long) v2);
+				break;
+			case DATATYPE_STRING:
+				actual = ((String) v1).compareTo((String) v2);
+				break;
+			case DATATYPE_DATE:
+				actual = ((Date) v1).compareTo((Date) v2);
+				break;
+			case DATATYPE_FLOAT:
+				actual = ((Float) v1).compareTo((Float) v2);
+				break;
+			case DATATYPE_DOUBLE:
+				actual = ((Double) v1).compareTo((Double) v2);
+				break;
+			case DATATYPE_SQL_TIMESTAMP:
+				actual = ((Timestamp) v1).compareTo((Timestamp) v2);
+				break;
+			default:
+				log.error("Unsupported data type {}",v1.getClass().getName());
+				throw new IllegalArgumentException("Unsupported data type");
 			}
-		} else {
-			LOGGER.error("Objects are different classes");
-		}
 		return actual;
 	}
 
@@ -166,7 +159,8 @@ public class CommonComparator<T> implements Comparator<T> {
 	/**
 	 * Get null order type
 	 */
-	private int determineNullOrder() {
+	private int determineNullPos() {
 		return isNullFirst ? -1 : 1;
 	}
+
 }
